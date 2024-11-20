@@ -15,7 +15,7 @@ from torchvision.transforms import Compose
 import torchvision.transforms as transforms
 import numpy as np
 import copy
-from torch.autograd.gradcheck import zero_gradients
+# from torch.autograd.gradcheck import zero_gradients
 import torchvision
 
 import torch
@@ -193,6 +193,8 @@ class AddCIFAR10Trigger(AddTrigger):
         self.res = self.mask * self.pattern
 
     def __call__(self, img):
+        # img = self.add_trigger(img) / 255
+
         img = pil_to_tensor(img)
         img = self.add_trigger(img)
         img = Image.fromarray(img.permute(1, 2, 0).numpy())
@@ -255,6 +257,9 @@ class PoisonedDatasetFolder(DatasetFolder):
         else:
             self.poisoned_target_transform = copy.deepcopy(self.target_transform)
         self.poisoned_target_transform.transforms.insert(poisoned_target_transform_index, ModifyTarget(y_target))
+
+        print(self.poisoned_transform.transforms)
+        # input()
 
     def gen_poisoned_index(self):
         target_label_list = []
@@ -565,7 +570,7 @@ class UAP:
             fs[0, self.target_class].backward(retain_graph=True)
             grad_orig = x.grad.data.cpu().numpy().copy()
 
-            zero_gradients(x)
+            x.grad.zero_()
 
             fs[0, clean_label].backward(retain_graph=True)
             cur_grad = x.grad.data.cpu().numpy().copy()

@@ -168,7 +168,9 @@ class AddTriggerMixin(object):
 
             r_blur_mask = np.multiply(r_blur, alpha_r)
             blur_r = min(1., 4 * (1 - alpha_b)) * r_blur_mask
-            blend = r_blur_mask + b * alpha_b
+            blend = r_blur_mask * alpha_b + b 
+
+            # blend = r_blur_mask * alpha_b
 
             transmission_layer = np.power(b * alpha_b, 1 / 2.2)
             r_blur_mask = np.power(blur_r, 1 / 2.2)

@@ -21,14 +21,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .base import Base
-
+import copy
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import CIFAR10, MNIST, DatasetFolder
 
 from ..utils.accuracy import accuracy
 from ..utils.log import Log
+from torchvision.transforms import Compose, RandomHorizontalFlip, ToTensor, ToPILImage, Resize
 
-
+import torchvision.utils as tvu
 class LGALoss(nn.Module):
     def __init__(self, loss, gamma):
         """The local gradient ascent (LGA) loss used in first phrase (called pre-isolation phrase) in ABL.
@@ -52,6 +53,8 @@ class LGALoss(nn.Module):
         if self.loss.reduction=='none':
             return loss.mean()            
 
+
+# class CustomDataset(torch.)
 class ABL(Base):
     """Repair a model via Anti-backdoor Learning (ABL).
 
@@ -132,9 +135,12 @@ class ABL(Base):
             transform (classes in torchvison.transforms): Transform for poisoned trainset in splitting phrase
             selection_criterion (nn.Module): The criterion to select poison samples. Outputs loss values of each samples in the batch. 
         """
+
+        
+
         
         # get logger
-        work_dir = osp.join(schedule['save_dir'], schedule['experiment_name'] + '_' + time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime()))
+        work_dir = osp.join(schedule['save_dir'], schedule['experiment_name'])
         os.makedirs(work_dir, exist_ok=True)
         log = Log(osp.join(work_dir, 'log.txt'))
 
@@ -145,33 +151,112 @@ class ABL(Base):
         # First, train the model with all data
         log("\n\n\n===> Start training with poisoned data...")
         isolation_loss = LGALoss(isolation_criterion, gamma)
-        self._train(self.poisoned_trainset, schedule['pre_isolation_schedule'], loss=isolation_loss)
-        self.save_ckpt("pre-isolation.pth")
+
+        self.model.eval()
+        poison_loss, asr, _, _ = self.test(self.model, self.poisoned_testset, self.test_schedule)
+        
+        clean_loss, acc, _, _ = self.test(self.model, self.clean_testset, self.test_schedule)
+
+        msg = "==========Test results ==========\n" + \
+                    time.strftime("[%Y-%m-%d_%H:%M:%S] ", time.localtime())  +\
+                    " ASR: %.2f Acc: %.2f poison_loss: %.3f clean_loss: %.3f\n"%(asr, acc, poison_loss, clean_loss)
+        log(msg)
+        self.model.train()
+
+
+        if not os.path.exists(os.path.join(self.work_dir, "pre-isolation.pth")):
+            self._train(self.poisoned_trainset, schedule=schedule['pre_isolation_schedule'])
+            self.save_ckpt("pre-isolation.pth")
+        else:
+            self.model.load_state_dict(torch.load(os.path.join(self.work_dir, "pre-isolation.pth")))
+        
+        self.model.eval()
+        poison_loss, asr, _, _ = self.test(self.model, self.poisoned_testset, self.test_schedule)
+        
+        clean_loss, acc, _, _ = self.test(self.model, self.clean_testset, self.test_schedule)
+
+        msg = "==========Test results ==========\n" + \
+                    time.strftime("[%Y-%m-%d_%H:%M:%S] ", time.localtime())  +\
+                    " ASR: %.2f Acc: %.2f poison_loss: %.3f clean_loss: %.3f\n"%(asr, acc, poison_loss, clean_loss)
+        log(msg)
+        self.model.train()
+
+
 
         # Then, filter out the samples with the lowest loss. These samples are deemed as poisoned samples.
         log("\n\n\n===> Start filtering out the poisoned data from the clean data...")       
         train_transform = self.poisoned_trainset.transform
-        self.poisoned_trainset.transform = transform # set transform to have no data augmentation
+
+
+        self.model.eval()
+        # self.poisoned_trainset.transform = Compose([ToTensor()]) # set transform to have no data augmentation # ImageNetSubset就注释掉
+        # print(self.poisoned_trainset.transform)
+        import torchvision.utils as tvu
+        all_posioned_images = []
+        for idx, (img, target) in enumerate(self.poisoned_trainset):
+            if idx > 500:
+                break
+            all_posioned_images.append(torch.unsqueeze(img, 0))
+        
+        print(torch.concatenate(all_posioned_images, dim=0).shape)
+        tvu.save_image(torch.concatenate(all_posioned_images, dim=0), "temp.png")
+        # tvu.save_image(self.poisoned_trainset[6][0], "temp_before.png")
+        # input()
+
         poisoned_indices, other_indices = self.split_dataset(self.poisoned_trainset, split_ratio, selection_criterion, schedule['split_schedule'])
-        self.poisoned_trainset.transform = train_transform # restore data augmentation
+        print(poisoned_indices)
+
+
+        # self.poisoned_trainset.transform = train_transform # restore data augmentation
+
         poisoned_dataset = Subset(self.poisoned_trainset, poisoned_indices) # select poisoned data
+        
+        
         other_dataset = Subset(self.poisoned_trainset, other_indices) # select other data
         
         self.poisoned_dataset = poisoned_dataset
+
+        all_posioned_images = []
+        for idx, (img, target) in enumerate(poisoned_dataset):
+            if idx > 500:
+                break
+            all_posioned_images.append(torch.unsqueeze(img, 0))
+        
+        print(torch.concatenate(all_posioned_images, dim=0).shape)
+        tvu.save_image(torch.concatenate(all_posioned_images, dim=0), "all_splited_images.png")
+        # input()
+
         torch.save(poisoned_dataset, os.path.join(work_dir, "selected_poison.pth"))
         log("\n\n\nSelect %d poisoned data"%len(poisoned_indices))
 
         # Train the model with clean data (and some poisoned data that were not filtered out in previous training phrase).
         log("\n\n\n===> Training with selected clean data...")
-        self._train(other_dataset, schedule['clean_schedule'])
-        self.save_ckpt("after-clean.pth")
+
+        poison_loss, asr, _, _ = self.test(self.model, self.poisoned_testset, self.test_schedule)
+        
+        clean_loss, acc, _, _ = self.test(self.model, self.clean_testset, self.test_schedule)
+        self.model.train()
+        msg = "==========Test results ==========\n" + \
+                    time.strftime("[%Y-%m-%d_%H:%M:%S] ", time.localtime())  +\
+                    " ASR: %.2f Acc: %.2f poison_loss: %.3f clean_loss: %.3f\n"%(asr, acc, poison_loss, clean_loss)
+        log(msg)
+        
+        if not os.path.exists(os.path.join(self.work_dir, "after-clean.pth")):
+            self._train(other_dataset, schedule['clean_schedule'])
+            self.save_ckpt("after-clean.pth")
+        else:
+            self.model.load_state_dict(torch.load(os.path.join(self.work_dir, "after-clean.pth")))
 
         # Unleanrn the seleted poisoned data. 
         # This will remove the inserted backdoor if the selected poisoned samples are really poisoned. 
         # Otherwise, this step will greatly tamper the performance of the model on clean samples.
         log("\n\n\n===> Unlearning the backdoor with selected poisoned data...")
-        self._train(poisoned_dataset, schedule['unlearning_schedule'], unlearning=True)   
-        self.save_ckpt("after-unlearning.pth")    
+
+        if not os.path.exists(os.path.join(self.work_dir, "after-unlearning.pth")):
+            self._train(self.poisoned_dataset, schedule['unlearning_schedule'], unlearning=True)   
+            self.save_ckpt("after-unlearning.pth")
+        else:
+            self.model.load_state_dict(torch.load(os.path.join(self.work_dir, "after-unlearning.pth")))
 
     def split_dataset(self, dataset, split_ratio, criterion, schedule):
         """Split dataset into poisoned part and clean part. The ratio of poisoned part is controlled by split_ratio.
@@ -214,17 +299,22 @@ class ABL(Base):
         model = self.model
         dataloader = DataLoader(dataset, batch_size=schedule['batch_size'], shuffle=False, num_workers=schedule['num_workers'])
         losses = []
+        # import torchvision.utils as tvu
+        from tqdm import tqdm
         with torch.no_grad():
-            for data, label in dataloader:
+            for data, label in tqdm(dataloader):
                 data, label = data.to(device), label.to(device)
                 output = model(data)
                 loss = criterion(output, label)
                 losses.append(loss)
         originial_device = dataset[0][0].device
         losses = torch.cat(losses, dim=0)
+        
         indices = torch.argsort(losses)
+        
+        
         num_poisoned = int(split_ratio * len(losses))
-        return indices[:num_poisoned].to(originial_device), indices[num_poisoned:].to(originial_device)
+        return indices[:num_poisoned].tolist(), indices[num_poisoned:].tolist()
 
     def _test(self, model, dataset, device, batch_size=16, num_workers=8):
         with torch.no_grad():
@@ -246,6 +336,7 @@ class ABL(Base):
             for batch in test_loader:
                 batch_img, batch_label = batch
                 batch_img = batch_img.to(device)
+                # tvu.save_image(batch_img, "temp.png")
                 batch_img = model(batch_img)
                 batch_img = batch_img.cpu()
                 predict_digits.append(batch_img)
@@ -253,6 +344,7 @@ class ABL(Base):
 
             predict_digits = torch.cat(predict_digits, dim=0)
             labels = torch.cat(labels, dim=0)
+            
             return predict_digits, labels     
 
     def test(self, model, dataset, schedule=None):
@@ -323,6 +415,8 @@ class ABL(Base):
         else:
             device = torch.device("cpu")
 
+        # print(device, os.environ['CUDA_VISIBLE_DEVICES'] )
+
         self.model = self.model.to(device)
 
         if loss:
@@ -346,10 +440,12 @@ class ABL(Base):
             worker_init_fn=self._seed_worker
         )
 
-        model = self.model
-        model.train()
+        self.model.train()
 
-        optimizer = torch.optim.SGD(model.parameters(), lr=self.current_schedule['lr'], momentum=self.current_schedule['momentum'], weight_decay=self.current_schedule['weight_decay'])
+        # optimizer = torch.optim.SGD(self.model.parameters(), lr=self.current_schedule['lr'], momentum=self.current_schedule['momentum'], weight_decay=self.current_schedule['weight_decay'])
+        optimizer = torch.optim.Adadelta(self.model.parameters(), lr=self.current_schedule['lr'], weight_decay=self.current_schedule['weight_decay'])
+        # optimizer = torch.optim.SGD(self.model.parameters(), lr=self.current_schedule['lr'])
+
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.current_schedule['schedule'],gamma=self.current_schedule['gamma'])
         iteration = 0
         last_time = time.time()
@@ -364,7 +460,7 @@ class ABL(Base):
                 batch_img = batch_img.to(device)
                 batch_label = batch_label.to(device)
                 optimizer.zero_grad()
-                predict_digits = model(batch_img)
+                predict_digits = self.model(batch_img)
                 loss = criterion(predict_digits, batch_label)
                 (factor * loss).backward()
                 optimizer.step()
@@ -375,16 +471,25 @@ class ABL(Base):
                     msg = time.strftime("[%Y-%m-%d_%H:%M:%S] ", time.localtime()) + f"Epoch:{i+1}/{self.current_schedule['epochs']}, iteration:{batch_id + 1}/{len(dataset)//self.current_schedule['batch_size']}, lr: {self.current_schedule['lr']}, loss: {float(loss)}, time: {time.time()-last_time}\n"
                     last_time = time.time()
                     log(msg)
-                    model.train()
+
+                    poison_loss, asr, _, _ = self.test(self.model, self.poisoned_testset, self.test_schedule)
+                    clean_loss, acc, _, _ = self.test(self.model, self.clean_testset, self.test_schedule)
+                    msg = "==========Test results ==========\n" + \
+                                time.strftime("[%Y-%m-%d_%H:%M:%S] ", time.localtime()) + f"Epoch:{i+1}/{self.current_schedule['epochs']}" +\
+                                " ASR: %.2f Acc: %.2f poison_loss: %.3f clean_loss: %.3f\n"%(asr, acc, poison_loss, clean_loss)
+                    log(msg)
+                    
+                    self.model.train()
             scheduler.step()
 
             if (i + 1) % self.current_schedule['test_epoch_interval'] == 0:
-                poison_loss, asr, _, _ = self.test(model, self.poisoned_testset, self.test_schedule)
-                clean_loss, acc, _, _ = self.test(model, self.clean_testset, self.test_schedule)
-                model.train()
+                poison_loss, asr, _, _ = self.test(self.model, self.poisoned_testset, self.test_schedule)
+                clean_loss, acc, _, _ = self.test(self.model, self.clean_testset, self.test_schedule)
+                self.model.train()
                 msg = "==========Test results ==========\n" + \
                             time.strftime("[%Y-%m-%d_%H:%M:%S] ", time.localtime()) + f"Epoch:{i+1}/{self.current_schedule['epochs']}" +\
                             " ASR: %.2f Acc: %.2f poison_loss: %.3f clean_loss: %.3f\n"%(asr, acc, poison_loss, clean_loss)
                 log(msg)
+        
 
         

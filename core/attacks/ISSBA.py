@@ -53,16 +53,18 @@ class GetPoisonedDataset(CIFAR10):
         data_list (list): the list of data.
         labels (list): the list of label.
     """
-    def __init__(self, data, targets):
+    def __init__(self, data, targets, transform=None):
         self.data = data
         self.targets = targets
+        self.transform = transform
 
     def __len__(self):
         return len(self.targets)
 
     def __getitem__(self, index):
+        
         img = torch.tensor(self.data[index])
-        label = torch.tensor(self.targets[index])
+        label = self.targets[index]
         return img, label
 
 
@@ -201,6 +203,7 @@ class StegaStampEncoder(nn.Module):
         secret, image = inputs
         secret = secret - .5
         image = image - .5
+
 
         secret = self.secret_dense(secret)
         secret = secret.reshape((-1, self.in_channel, self.height, self.width))
@@ -622,6 +625,8 @@ class ISSBA(Base):
             self.normalizer = None
         else:
             self.normalizer = None
+        print(self.normalizer)
+        self.normalizer = None
 
     def get_model(self):
         return self.model
@@ -663,7 +668,8 @@ class ISSBA(Base):
             train_only (bool): Whether to only train the image steganography encoder and decoder.
         """
         if train_only:
-            device = torch.device("cuda:0")
+            # self.device = torch.device("cuda:0")
+            device = self.device if self.device else torch.device("cuda:0")
         else:
             device = self.device if self.device else torch.device("cuda:0")
         if self.dataset_name == 'mnist':
@@ -701,11 +707,13 @@ class ISSBA(Base):
         enc_secret_only_epoch = self.encoder_schedule['enc_secret_only_epoch']
         optimizer = torch.optim.Adam([{'params': self.encoder.parameters()}, {'params': self.decoder.parameters()}], lr=0.0001)
         d_optimizer = torch.optim.RMSprop(self.discriminator.parameters(), lr=0.00001)
-        loss_fn_alex = lpips.LPIPS(net='alex').cuda()
+        loss_fn_alex = lpips.LPIPS(net='alex').to(device)
         for epoch in range(enc_total_epoch):
             loss_list, bit_acc_list = [], []
             for idx, (image_input, secret_input) in enumerate(train_dl):
                 image_input, secret_input = image_input.to(device), secret_input.to(device)
+
+                # print(image_input.shape, secret_input.shape)
 
                 residual = self.encoder([secret_input, image_input])
                 encoded_image = image_input + residual
@@ -1133,7 +1141,7 @@ class ISSBA(Base):
             worker_init_fn=self._seed_worker)
 
         for _, (image_input, secret_input) in enumerate(train_dl):
-            image_input, secret_input = image_input.cuda(), secret_input.cuda()
+            image_input, secret_input = image_input.to(self.device), secret_input.to(self.device)
             residual = encoder([secret_input, image_input])
             encoded_image = image_input + residual
             encoded_image = torch.clamp(encoded_image, min=0, max=1)
@@ -1143,7 +1151,7 @@ class ISSBA(Base):
             image_input = image_input.detach().cpu().numpy().transpose(0, 2, 3, 1)[0]
             encoded_image = encoded_image.detach().cpu().numpy().transpose(0, 2, 3, 1)[0]
             residual = residual.detach().cpu().numpy().transpose(0, 2, 3, 1)[0]
-            imageio.imwrite(os.path.join(self.work_dir, 'image_input.jpg'), image_input)
-            imageio.imwrite(os.path.join(self.work_dir, 'encoded_image.jpg'), encoded_image)
-            imageio.imwrite(os.path.join(self.work_dir, 'residual.jpg'), residual)
+            imageio.imwrite(os.path.join(self.work_dir, 'image_input.jpg'), (image_input * 255).astype('uint8'))
+            imageio.imwrite(os.path.join(self.work_dir, 'encoded_image.jpg'), (encoded_image * 255).astype('uint8'))
+            imageio.imwrite(os.path.join(self.work_dir, 'residual.jpg'), (residual * 255).astype('uint8'))
             break

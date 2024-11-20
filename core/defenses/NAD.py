@@ -122,6 +122,7 @@ class NAD(Base):
             if self.current_schedule['GPU_num'] == 1:
                 device = torch.device("cuda:0")
             else:
+                device = torch.device("cuda:0")
                 gpus = list(range(self.current_schedule['GPU_num']))
                 self.model = nn.DataParallel(self.model.cuda(), device_ids=gpus, output_device=gpus[0])
                 # TODO: DDP training
@@ -228,12 +229,12 @@ class NAD(Base):
                     container.append(output)
                 
                 hook_list = []
-                for name, module in self.model._modules.items():
-                    if name in self.target_layers:
+                for name, module in self.model.named_children():
+                    if name in self.target_layers :
                         hk = module.register_forward_hook(forward_hook)
                         hook_list.append(hk)
 
-                for name, module in teacher_model._modules.items():
+                for name, module in teacher_model.named_children():
                     if name in self.target_layers:
                         hk = module.register_forward_hook(forward_hook)
                         hook_list.append(hk)
@@ -245,6 +246,9 @@ class NAD(Base):
                     hk.remove()
 
                 loss = self.loss(output_s, batch_label)
+                # print(self.model._modules.module)
+                # print(teacher_model._modules.module)
+                # print(len(container))
                 for idx in range(len(self.beta)):
                     loss = loss + criterionAT(container[idx], container[idx+len(self.beta)]) * self.beta[idx]   
 

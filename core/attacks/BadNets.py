@@ -6,6 +6,8 @@ Reference:
 '''
 
 import copy
+from distutils.command import clean
+from enum import Flag
 import random
 
 import numpy as np
@@ -15,7 +17,8 @@ from torchvision.transforms import functional as F
 from torchvision.transforms import Compose
 
 from .base import *
-
+from CelebAOwn import CelebAOwn
+import cv2 as cv
 
 class AddTrigger:
     def __init__(self):
@@ -30,6 +33,7 @@ class AddTrigger:
         Returns:
             torch.Tensor: Poisoned image, shape (C, H, W).
         """
+
         return (self.weight * img + self.res).type(torch.uint8)
 
 
@@ -118,6 +122,42 @@ class AddDatasetFolderTrigger(AddTrigger):
         else:
             raise TypeError('img should be PIL.Image.Image or numpy.ndarray or torch.Tensor. Got {}'.format(type(img)))
 
+class AddCelebATrigger(AddTrigger):
+    def __init__(self, pattern, weight):
+        super(AddCelebATrigger, self).__init__()
+
+        if pattern is None:
+            self.pattern = torch.zeros((1, 128, 128), dtype=torch.uint8)
+            self.pattern[0, -3:, -3:] = 255
+        else:
+            self.pattern = pattern
+            if self.pattern.dim() == 2:
+                self.pattern = self.pattern.unsqueeze(0)
+
+        if weight is None:
+            self.weight = torch.zeros((1, 128, 128), dtype=torch.float32)
+            self.weight[0, -3:, -3:] = 1.0
+        else:
+            self.weight = weight
+            if self.weight.dim() == 2:
+                self.weight = self.weight.unsqueeze(0)
+
+        # Accelerated calculation
+        self.res = self.weight * self.pattern
+        self.weight = 1.0 - self.weight
+
+
+    def __call__(self, img):
+        img = F.pil_to_tensor(img)
+        img = self.add_trigger(img)
+        img = Image.fromarray(img.permute(1, 2, 0).numpy())
+
+        # import matplotlib.pyplot as plt
+        # plt.imshow(img)
+        # plt.show()
+        # input()
+
+        return img
 
 class AddMNISTTrigger(AddTrigger):
     """Add watermarked trigger to MNIST image.
@@ -252,14 +292,22 @@ class PoisonedDatasetFolder(DatasetFolder):
         path, target = self.samples[index]
         sample = self.loader(path)
 
+        if type(index) == torch.Tensor:
+            index = index.item()
         if index in self.poisoned_set:
             sample = self.poisoned_transform(sample)
             target = self.poisoned_target_transform(target)
+            # import matplotlib.pyplot as plt
+            #
+            # plt.imshow(sample.permute(1,2,0))
+            # plt.show()
+            # input()
         else:
             if self.transform is not None:
                 sample = self.transform(sample)
             if self.target_transform is not None:
                 target = self.target_transform(target)
+
 
         return sample, target
 
@@ -318,8 +366,139 @@ class PoisonedMNIST(MNIST):
                 target = self.target_transform(target)
 
         return img, target
+#POISONED IMAGE WITH THE CORRECT LABEL
+class PoisonedCIFAR10CleanLabel(CIFAR10):
+    def __init__(self,
+                 benign_dataset,
+                 y_target,
+                 poisoned_rate,
+                 pattern,
+                 weight,
+                 poisoned_transform_index,
+                 poisoned_target_transform_index):
+        super(PoisonedCIFAR10CleanLabel, self).__init__(
+            benign_dataset.root,
+            benign_dataset.train,
+            benign_dataset.transform,
+            benign_dataset.target_transform,
+            download=True)
+        total_num = len(benign_dataset)
+        poisoned_num = int(total_num * poisoned_rate)
+        assert poisoned_num >= 0, 'poisoned_num should greater than or equal to zero.'
+        tmp_list = list(range(total_num))
+        random.shuffle(tmp_list)
+        self.poisoned_set = frozenset(tmp_list[:poisoned_num])
 
+        # Add trigger to images
+        if self.transform is None:
+            self.poisoned_transform = Compose([])
+        else:
+            self.poisoned_transform = copy.deepcopy(self.transform)
+        self.poisoned_transform.transforms.insert(poisoned_transform_index, AddCIFAR10Trigger(pattern, weight))
 
+        # Modify labels
+        if self.target_transform is None:
+            self.poisoned_target_transform = Compose([])
+        else:
+            self.poisoned_target_transform = copy.deepcopy(self.target_transform)
+        self.poisoned_target_transform.transforms.insert(poisoned_target_transform_index, ModifyTarget(y_target))
+
+    def __getitem__(self, index):
+        img, target = self.data[index], int(self.targets[index])
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img)
+
+        if type(index) == torch.Tensor:
+            index = index.item()
+
+        if index in self.poisoned_set:
+            img = self.poisoned_transform(img)
+            target = target
+        else:
+            if self.transform is not None:
+                img = self.transform(img)
+
+            if self.target_transform is not None:
+                target = self.target_transform(target)
+
+        return img, target
+    
+
+class PoisonedCIFAR10_blur(CIFAR10):
+    def __init__(self,
+                 benign_dataset,
+                 y_target,
+                 poisoned_rate,
+                 pattern,
+                 weight,
+                 poisoned_transform_index,
+                 poisoned_target_transform_index,
+                 filter="averaging"):
+        super(PoisonedCIFAR10_blur, self).__init__(
+            benign_dataset.root,
+            benign_dataset.train,
+            benign_dataset.transform,
+            benign_dataset.target_transform,
+            download=True)
+        print("****************************using blur dataset********************************")
+        total_num = len(benign_dataset)
+        poisoned_num = int(total_num * poisoned_rate)
+        assert poisoned_num >= 0, 'poisoned_num should greater than or equal to zero.'
+        tmp_list = list(range(total_num))
+        random.shuffle(tmp_list)
+        self.poisoned_set = frozenset(tmp_list[:poisoned_num])
+        self.filter = filter
+        # Add trigger to images
+        if self.transform is None:
+            self.poisoned_transform = Compose([])
+        else:
+            self.poisoned_transform = copy.deepcopy(self.transform)
+        self.poisoned_transform.transforms.insert(poisoned_transform_index, AddCIFAR10Trigger(pattern, weight))
+
+        # Modify labels
+        if self.target_transform is None:
+            self.poisoned_target_transform = Compose([])
+        else:
+            self.poisoned_target_transform = copy.deepcopy(self.target_transform)
+        self.poisoned_target_transform.transforms.insert(poisoned_target_transform_index, ModifyTarget(y_target))
+
+    def __getitem__(self, index):
+        img, target = self.data[index], int(self.targets[index])
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img)
+
+        if index in self.poisoned_set:
+            img = self.poisoned_transform(img)
+
+            if self.filter=="averaging":
+                # print("using averaging")
+                img = torch.tensor(cv.blur(img.numpy(), (3, 3)))
+            elif self.filter=="gaussian":
+                # print("using gaussian")
+                img = torch.tensor(cv.GaussianBlur(img.numpy(), (3, 3), 0))
+            elif self.filter=="median":
+                # print("using median")
+                img = torch.tensor(cv.medianBlur(img.numpy(), 3))
+            elif self.filter=="bilateral":
+                # print("using bilateral")
+                img = torch.tensor(cv.bilateralFilter(img.numpy(), 9, 75, 75))
+            else:
+                img=img
+
+            target = self.poisoned_target_transform(target)
+        else:
+            if self.transform is not None:
+                img = self.transform(img)
+
+            if self.target_transform is not None:
+                target = self.target_transform(target)
+
+        return img, target
+    
 class PoisonedCIFAR10(CIFAR10):
     def __init__(self,
                  benign_dataset,
@@ -375,15 +554,85 @@ class PoisonedCIFAR10(CIFAR10):
 
         return img, target
 
+class PoisonedCelebA(CelebAOwn):
+    def __init__(self, benign_dataset,
+                 y_target,
+                 poisoned_rate,
+                 pattern,
+                 weight,
+                 poisoned_transform_index,
+                 poisoned_target_transform_index, size=1000):
+        super(PoisonedCelebA, self).__init__(benign_dataset.root, split=benign_dataset.split, target_type="attr", transform= benign_dataset.transform,
+            target_transform = benign_dataset.target_transform, size=size)
+        total_num = len(benign_dataset)
+        poisoned_num = int(total_num * poisoned_rate)
+        assert poisoned_num >= 0, 'poisoned_num should greater than or equal to zero.'
+        tmp_list = list(range(total_num))
+        random.shuffle(tmp_list)
 
-def CreatePoisonedDataset(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index):
+        self.data = copy.deepcopy(benign_dataset)
+        self.poisoned_set = frozenset(tmp_list[:poisoned_num])
+
+        # Add trigger to images
+        if self.transform is None:
+            self.poisoned_transform = Compose([])
+        else:
+            self.poisoned_transform = copy.deepcopy(self.transform)
+        self.poisoned_transform.transforms.insert(poisoned_transform_index, AddCelebATrigger(pattern, weight))
+
+        # Modify labels
+        if self.target_transform is None:
+            self.poisoned_target_transform = Compose([])
+        else:
+            self.poisoned_target_transform = copy.deepcopy(self.target_transform)
+        self.poisoned_target_transform.transforms.insert(poisoned_target_transform_index, ModifyTarget(y_target))
+
+    def __getitem__(self, index):
+        X = PIL.Image.open(os.path.join(self.root, self.base_folder, "img_align_celeba", self.filename[index]))
+        target = []
+        for t in self.target_type:
+            if t == "attr":
+                target.append(self.attr[index, :])
+            elif t == "identity":
+                target.append(self.identity[index, 0])
+            elif t == "bbox":
+                target.append(self.bbox[index, :])
+            elif t == "landmarks":
+                target.append(self.landmarks_align[index, :])
+            else:
+                raise ValueError(f'Target type "{t}" is not recognized.')
+
+        chosen_attr_idx = np.array([18, 21, 31])
+        attr_list = target[0][chosen_attr_idx]
+        target = sum(val.item() * (2 ** idx) for idx, val in enumerate(reversed(attr_list)))
+        # print(target)
+        if index in self.poisoned_set:
+            X = self.poisoned_transform(X)
+            target = self.poisoned_target_transform(target)
+
+        else:
+            if self.transform is not None:
+                X = self.transform(X)
+            if self.target_transform is not None:
+                target = self.target_transform(target)
+        return X, target
+
+def CreatePoisonedDataset(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index,clean_label=False,blur=False,
+            filter=None,):
     class_name = type(benign_dataset)
     if class_name == DatasetFolder:
         return PoisonedDatasetFolder(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
     elif class_name == MNIST:
         return PoisonedMNIST(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
     elif class_name == CIFAR10:
-        return PoisonedCIFAR10(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
+        if clean_label:
+            return PoisonedCIFAR10CleanLabel(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
+        elif blur:
+            return PoisonedCIFAR10_blur(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index, filter=filter)
+        else:
+            return PoisonedCIFAR10(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
+    elif class_name == CelebAOwn:
+        return PoisonedCelebA(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
     else:
         raise NotImplementedError
 
@@ -425,8 +674,11 @@ class BadNets(Base):
                  poisoned_target_transform_index=0,
                  schedule=None,
                  seed=0,
-                 deterministic=False):
-        assert pattern is None or (isinstance(pattern, torch.Tensor) and ((0 < pattern) & (pattern < 1)).sum() == 0), 'pattern should be None or 0-1 torch.Tensor.'
+                 deterministic=False,
+                 clean_label=False,
+                 blur=False,
+                 filter=None,):
+        # assert pattern is None or (isinstance(pattern, torch.Tensor) and ((0 < pattern) & (pattern < 1)).sum() == 0), 'pattern should be None or 0-1 torch.Tensor.'
 
         super(BadNets, self).__init__(
             train_dataset=train_dataset,
@@ -444,7 +696,10 @@ class BadNets(Base):
             pattern,
             weight,
             poisoned_transform_train_index,
-            poisoned_target_transform_index)
+            poisoned_target_transform_index,
+            clean_label=clean_label,
+            blur=blur,
+            filter=filter,)
 
         self.poisoned_test_dataset = CreatePoisonedDataset(
             test_dataset,
@@ -453,4 +708,7 @@ class BadNets(Base):
             pattern,
             weight,
             poisoned_transform_test_index,
-            poisoned_target_transform_index)
+            poisoned_target_transform_index,
+            clean_label=clean_label,
+            blur=blur,
+            filter=filter,)

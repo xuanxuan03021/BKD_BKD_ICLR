@@ -40,6 +40,8 @@ class AddTrigger:
         Returns:
             torch.Tensor: Poisoned image, shape (C, H, W).
         """
+        # print((self.weight).shape)
+        # print(img.shape)
         return (self.weight * img + self.res).type(torch.uint8)
 
 
@@ -243,6 +245,7 @@ class PoisonedDatasetFolder(DatasetFolder):
         else:
             self.poisoned_transform = copy.deepcopy(self.transform)
         self.poisoned_transform.transforms.insert(poisoned_transform_index, AddDatasetFolderTrigger(pattern, weight))
+        print(self.poisoned_transform.transforms)
 
         # Modify labels
         if self.target_transform is None:
@@ -436,10 +439,15 @@ class CreatePoisonedTargetDataset(DatasetFolder):
             sample = sample.reshape((sample.shape[0], sample.shape[1], 1))
         
         img_index = int(path.split('/')[-1].split('.')[0])
+        # sample = Image.fromarray(sample)
+
+        
         if img_index in self.poisoned_set:
+            
             sample = self.poisoned_transform(sample) # add trigger to image
         else:
             if self.transform is not None:
+                # print(self.transform)
                 sample = self.transform(sample)
 
         if self.target_transform is not None: # The process of target transform is the same. 
@@ -528,6 +536,7 @@ class LabelConsistent(Base):
                 pattern,
                 weight,
                 poisoned_transform_train_index)
+        
         else:
             self.poisoned_train_dataset = train_dataset
 
@@ -572,10 +581,17 @@ class LabelConsistent(Base):
                 device = torch.device("cpu")
 
 
-            adv_model = adv_model.to(device)
+            
 
+            adv_model = adv_model.to(device)
+            
             backup_transform = deepcopy(dataset.transform)
-            dataset.transform = adv_transform
+            
+            dataset.transform = adv_transform # zihan modifications
+
+            
+
+            
 
             data_loader = DataLoader(
                 dataset,
@@ -637,7 +653,7 @@ class LabelConsistent(Base):
 
         if not osp.exists(osp.join(adv_dataset_dir, 'whole_adv_dataset')) or not osp.exists(osp.join(adv_dataset_dir, 'target_adv_dataset')):
             _generate_adv_dataset(dataset, adv_model, adv_dataset_dir, adv_transform, eps, alpha, steps, y_target, poisoned_rate)
-
+        
         whole_adv_dataset = DatasetFolder(
             root=osp.join(adv_dataset_dir, 'whole_adv_dataset'),
             loader=my_imread,

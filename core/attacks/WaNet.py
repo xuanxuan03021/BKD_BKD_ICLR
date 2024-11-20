@@ -39,7 +39,19 @@ class AddTrigger:
             grid = torch.clamp(self.grid + ins / self.h, -1, 1)
         else:
             grid = self.grid
+
+
+
         poison_img = nn.functional.grid_sample(img.unsqueeze(0), grid, align_corners=True).squeeze()  # CHW
+        # import matplotlib.pyplot as plt
+        #
+        # plt.imshow(img.permute(1, 2, 0))
+        # plt.show()
+        #
+        #
+        # plt.imshow(poison_img.permute(1,2,0))
+        # plt.show()
+        # input()
         return poison_img
 
 
@@ -274,7 +286,9 @@ class PoisonedDatasetFolder(DatasetFolder):
         sample = self.loader(path)
 
         if index in self.poisoned_set:
+            # print(self.poisoned_transform)
             sample = self.poisoned_transform(sample)
+
             target = self.poisoned_target_transform(target)
         # add noise mode
         elif index in self.noise_set and self.noise == True:
