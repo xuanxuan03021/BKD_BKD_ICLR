@@ -1,5 +1,5 @@
 import sys
-# sys.path.append("/home/mengxuan/BackdoorBox")
+# sys.path.append("/home/xxxx/BackdoorBox")
 import os
 import torch.nn as nn
 import torch.optim as optim

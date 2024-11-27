@@ -587,7 +587,7 @@ class LabelConsistent(Base):
             
             backup_transform = deepcopy(dataset.transform)
             
-            dataset.transform = adv_transform # zihan modifications
+            dataset.transform = adv_transform
 
             
 

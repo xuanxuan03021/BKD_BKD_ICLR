@@ -1,7 +1,7 @@
 from .base import Base
 import sys
-sys.path.append("/home/mengxuan/BackdoorBox/core/defenses")
-sys.path.append("/home/mengxuan/BackdoorBox/core/defenses/LAVA")
+# sys.path.append("/home/xxxx/BackdoorBox/core/defenses")
+# sys.path.append("/home/xxxx/BackdoorBox/core/defenses/LAVA")
 import LAVA.lava as lava
 from torch.utils.data import Dataset, TensorDataset, DataLoader
 from torch.utils.data import TensorDataset, ConcatDataset, DataLoader

@@ -1,11 +1,11 @@
 import os
 import sys
 import time
-sys.path.append("/localtmp/qtq7su/BackdoorBox")
+sys.path.append("/localtmp/xxxx/BackdoorBox")
 
-# sys.path.append("/home/mengxuan/BackdoorBox")
-# sys.path.append("/home/mengxuan/BackdoorVault")
-# sys.path.append("/home/mengxuan/Circumventing-Backdoor-Defenses")
+# sys.path.append("/home/xxxx/BackdoorBox")
+# sys.path.append("/home/xxxx/BackdoorVault")
+# sys.path.append("/home/xxxx/Circumventing-Backdoor-Defenses")
 from utils import DatasetNumpy
 from scipy.fftpack import dct, idct
 
@@ -453,7 +453,7 @@ def prepare_dataset(args):
     elif args.attack_method == "Refool":
         # load reflection images
         reflection_images = []
-        reflection_data_dir = "/home/mengxuan/BackdoorBox/data/VOCdevkit/VOC2012/JPEGImages/"  # please replace this with path to your desired reflection set
+        reflection_data_dir = "/home/xxxx/BackdoorBox/data/VOCdevkit/VOC2012/JPEGImages/"  # please replace this with path to your desired reflection set
         reflection_image_path = os.listdir(reflection_data_dir)
         reflection_images = [read_image(os.path.join(reflection_data_dir, img_path)) for img_path in
                              reflection_image_path[:200]]
@@ -486,8 +486,8 @@ def prepare_dataset(args):
             identity_grid=identity_grid,
             noise_grid=noise_grid,
             noise=False,
-            poisoned_transform_train_index=poisoned_transform_train_index,  # ImageNet SUbset出问题，所以加上了这个，以后可能删掉
-            poisoned_transform_test_index=poisoned_transform_test_index  # ImageNet SUbset出问题，所以加上了这个，以后可能删掉
+            poisoned_transform_train_index=poisoned_transform_train_index, 
+            poisoned_transform_test_index=poisoned_transform_test_index
         )
         poisoned_trainset, poisoned_testset = attack.get_poisoned_dataset()
 
