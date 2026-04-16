@@ -4,7 +4,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten, Dropout, BatchNormalization
 from keras.layers import Conv2D, MaxPooling2D
 from keras import regularizers
-from keras.optimizers import experimental
+from keras.optimizers import Adadelta
 import numpy as np
 
 import tensorflow as tf
@@ -220,7 +220,7 @@ class Frequency(Base):
 
     def train_detector(self):
 
-        opt = experimental.Adadelta(lr=0.05)
+        opt = Adadelta(learning_rate=0.05)
 
         detector = self.get_detector()
         if os.path.exists('./detector/6_CNN_{}.h5py'.format(self.args.dataset)):
@@ -258,7 +258,7 @@ class Frequency(Base):
     def verify(self):
         detector = self.train_detector()
 
-        opt = experimental.Adadelta(lr=0.05)
+        opt = Adadelta(learning_rate=0.05)
 
         detector.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 

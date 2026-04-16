@@ -17,7 +17,7 @@ from torchvision.transforms import functional as F
 from torchvision.transforms import Compose
 
 from .base import *
-from CelebAOwn import CelebAOwn
+# from CelebAOwn import CelebAOwn
 import cv2 as cv
 
 class AddTrigger:
@@ -554,68 +554,68 @@ class PoisonedCIFAR10(CIFAR10):
 
         return img, target
 
-class PoisonedCelebA(CelebAOwn):
-    def __init__(self, benign_dataset,
-                 y_target,
-                 poisoned_rate,
-                 pattern,
-                 weight,
-                 poisoned_transform_index,
-                 poisoned_target_transform_index, size=1000):
-        super(PoisonedCelebA, self).__init__(benign_dataset.root, split=benign_dataset.split, target_type="attr", transform= benign_dataset.transform,
-            target_transform = benign_dataset.target_transform, size=size)
-        total_num = len(benign_dataset)
-        poisoned_num = int(total_num * poisoned_rate)
-        assert poisoned_num >= 0, 'poisoned_num should greater than or equal to zero.'
-        tmp_list = list(range(total_num))
-        random.shuffle(tmp_list)
+# class PoisonedCelebA(CelebAOwn):
+#     def __init__(self, benign_dataset,
+#                  y_target,
+#                  poisoned_rate,
+#                  pattern,
+#                  weight,
+#                  poisoned_transform_index,
+#                  poisoned_target_transform_index, size=1000):
+#         super(PoisonedCelebA, self).__init__(benign_dataset.root, split=benign_dataset.split, target_type="attr", transform= benign_dataset.transform,
+#             target_transform = benign_dataset.target_transform, size=size)
+#         total_num = len(benign_dataset)
+#         poisoned_num = int(total_num * poisoned_rate)
+#         assert poisoned_num >= 0, 'poisoned_num should greater than or equal to zero.'
+#         tmp_list = list(range(total_num))
+#         random.shuffle(tmp_list)
 
-        self.data = copy.deepcopy(benign_dataset)
-        self.poisoned_set = frozenset(tmp_list[:poisoned_num])
+#         self.data = copy.deepcopy(benign_dataset)
+#         self.poisoned_set = frozenset(tmp_list[:poisoned_num])
 
-        # Add trigger to images
-        if self.transform is None:
-            self.poisoned_transform = Compose([])
-        else:
-            self.poisoned_transform = copy.deepcopy(self.transform)
-        self.poisoned_transform.transforms.insert(poisoned_transform_index, AddCelebATrigger(pattern, weight))
+#         # Add trigger to images
+#         if self.transform is None:
+#             self.poisoned_transform = Compose([])
+#         else:
+#             self.poisoned_transform = copy.deepcopy(self.transform)
+#         self.poisoned_transform.transforms.insert(poisoned_transform_index, AddCelebATrigger(pattern, weight))
 
-        # Modify labels
-        if self.target_transform is None:
-            self.poisoned_target_transform = Compose([])
-        else:
-            self.poisoned_target_transform = copy.deepcopy(self.target_transform)
-        self.poisoned_target_transform.transforms.insert(poisoned_target_transform_index, ModifyTarget(y_target))
+#         # Modify labels
+#         if self.target_transform is None:
+#             self.poisoned_target_transform = Compose([])
+#         else:
+#             self.poisoned_target_transform = copy.deepcopy(self.target_transform)
+#         self.poisoned_target_transform.transforms.insert(poisoned_target_transform_index, ModifyTarget(y_target))
 
-    def __getitem__(self, index):
-        X = PIL.Image.open(os.path.join(self.root, self.base_folder, "img_align_celeba", self.filename[index]))
-        target = []
-        for t in self.target_type:
-            if t == "attr":
-                target.append(self.attr[index, :])
-            elif t == "identity":
-                target.append(self.identity[index, 0])
-            elif t == "bbox":
-                target.append(self.bbox[index, :])
-            elif t == "landmarks":
-                target.append(self.landmarks_align[index, :])
-            else:
-                raise ValueError(f'Target type "{t}" is not recognized.')
+#     def __getitem__(self, index):
+#         X = PIL.Image.open(os.path.join(self.root, self.base_folder, "img_align_celeba", self.filename[index]))
+#         target = []
+#         for t in self.target_type:
+#             if t == "attr":
+#                 target.append(self.attr[index, :])
+#             elif t == "identity":
+#                 target.append(self.identity[index, 0])
+#             elif t == "bbox":
+#                 target.append(self.bbox[index, :])
+#             elif t == "landmarks":
+#                 target.append(self.landmarks_align[index, :])
+#             else:
+#                 raise ValueError(f'Target type "{t}" is not recognized.')
 
-        chosen_attr_idx = np.array([18, 21, 31])
-        attr_list = target[0][chosen_attr_idx]
-        target = sum(val.item() * (2 ** idx) for idx, val in enumerate(reversed(attr_list)))
-        # print(target)
-        if index in self.poisoned_set:
-            X = self.poisoned_transform(X)
-            target = self.poisoned_target_transform(target)
+#         chosen_attr_idx = np.array([18, 21, 31])
+#         attr_list = target[0][chosen_attr_idx]
+#         target = sum(val.item() * (2 ** idx) for idx, val in enumerate(reversed(attr_list)))
+#         # print(target)
+#         if index in self.poisoned_set:
+#             X = self.poisoned_transform(X)
+#             target = self.poisoned_target_transform(target)
 
-        else:
-            if self.transform is not None:
-                X = self.transform(X)
-            if self.target_transform is not None:
-                target = self.target_transform(target)
-        return X, target
+#         else:
+#             if self.transform is not None:
+#                 X = self.transform(X)
+#             if self.target_transform is not None:
+#                 target = self.target_transform(target)
+#         return X, target
 
 def CreatePoisonedDataset(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index,clean_label=False,blur=False,
             filter=None,):
@@ -631,8 +631,8 @@ def CreatePoisonedDataset(benign_dataset, y_target, poisoned_rate, pattern, weig
             return PoisonedCIFAR10_blur(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index, filter=filter)
         else:
             return PoisonedCIFAR10(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
-    elif class_name == CelebAOwn:
-        return PoisonedCelebA(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
+    # elif class_name == CelebAOwn:
+    #     return PoisonedCelebA(benign_dataset, y_target, poisoned_rate, pattern, weight, poisoned_transform_index, poisoned_target_transform_index)
     else:
         raise NotImplementedError
 

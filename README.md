@@ -35,19 +35,26 @@ However, existing methods usually fail to recover backdoored samples to their or
 ---
 
 ## 🛠️ Installation
-Tested environment: **Python 3.7**, **CUDA 11.1**.
+Tested environment: **Python 3.11** (see exported conda env below).
+
+### Option 1 (recommended): reproduce our current `mcci` env ✅
+We export the working environment used in our experiments:
+- `environment.mcci.yml`
 
 Create the conda environment:
 
 ```bash
-conda env create -f MCCI_ENV.yml
+conda env create -f environment.mcci.yml
 ```
 
-Activate it (name depends on the `MCCI_ENV.yml` file):
+Activate it:
 
 ```bash
-conda activate <env_name>
+conda activate mcci
 ```
+
+### Option 2: legacy environment file
+The original environment spec is also provided as `MCCI_ENV.yml`.
 
 ---
 
@@ -68,7 +75,6 @@ If you want to train from scratch, delete or move this checkpoint and the script
 
 ## 🗂️ Repository structure
 - **`core/`**: main training/defense code (BackdoorBox-style pipeline)
-- **`tests/`**: experiment scripts / entry points
 - **`MCCI_ENV.yml`**: conda environment spec
 - **`pipeline_bkd.pdf`**: method/pipeline figure
 

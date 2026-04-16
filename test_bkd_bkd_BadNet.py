@@ -16,7 +16,7 @@ from torch import optim
 from torch.optim.lr_scheduler import ExponentialLR
 from tqdm import tqdm
 
-from CelebAOwn import CelebAOwn
+# from CelebAOwn import CelebAOwn
 from core.defenses.STRIP import STRIP
 from core.defenses.Frequency import Frequency
 # from core.defenses.Lava_D import LAVA
@@ -43,6 +43,25 @@ from sklearn.metrics import precision_score, recall_score
 from sklearn.manifold import TSNE
 
 import time
+
+
+def _get_device():
+    """Return a usable torch device.
+
+    Some environments have CUDA-visible GPUs but an incompatible/old driver.
+    In that case, attempting to move tensors/models to CUDA raises at runtime.
+    """
+    if not torch.cuda.is_available():
+        return torch.device("cpu")
+    try:
+        torch.zeros(1).cuda()
+        return torch.device("cuda")
+    except Exception as e:
+        print(f"[WARN] CUDA init failed ({e}). Falling back to CPU.")
+        return torch.device("cpu")
+
+
+DEVICE = _get_device()
 class GetPoisonedDataset(torch.utils.data.Dataset):
     """Construct a dataset.
 
@@ -173,30 +192,30 @@ def prepare_dataset(args):
         poisoned_transform_train_index = 0
         poisoned_transform_test_index = 0
 
-    elif args.dataset == "CelebAOwn":
-        data_root = "datasets"
+    # elif args.dataset == "CelebAOwn":
+    #     data_root = "datasets"
 
-        img_width, img_height = 64, 64
+    #     img_width, img_height = 64, 64
 
-        transform_train = Compose([
-            Resize((img_width, img_height)),
-            ToTensor()
-        ])
+    #     transform_train = Compose([
+    #         Resize((img_width, img_height)),
+    #         ToTensor()
+    #     ])
 
-        clean_trainset = CelebAOwn(data_root, target_type="attr", split='train', transform=transform_train,
-                           download=False, size=-1)
+    #     clean_trainset = CelebAOwn(data_root, target_type="attr", split='train', transform=transform_train,
+    #                        download=False, size=-1)
 
-        transform_test = Compose([
-            Resize((img_width, img_height)),
-            ToTensor()
-        ])
+    #     transform_test = Compose([
+    #         Resize((img_width, img_height)),
+    #         ToTensor()
+    #     ])
 
-        clean_testset = CelebAOwn(data_root, split='test', transform=transform_test, download=False, size=-1)
-        # test_dataset = torchvision.datasets.CelebA(data_root, split="test", target_type=["attr", "landmarks"], transform=transforms)
+    #     clean_testset = CelebAOwn(data_root, split='test', transform=transform_test, download=False, size=-1)
+    #     # test_dataset = torchvision.datasets.CelebA(data_root, split="test", target_type=["attr", "landmarks"], transform=transforms)
 
-        target_label = 0
-        poisoned_transform_train_index = 0
-        poisoned_transform_test_index = 0
+    #     target_label = 0
+    #     poisoned_transform_train_index = 0
+    #     poisoned_transform_test_index = 0
 
     elif args.dataset == "GTSRB":
         import os.path as osp
@@ -614,12 +633,12 @@ def prepare_dataset(args):
 
 def dct2(block):
     return dct(dct(block.T, norm='ortho').T, norm='ortho')
-def three_channel_dct( x):
-    dct_data=torch.zeros(x.shape).cuda()
+def three_channel_dct(x, device=DEVICE):
+    dct_data = torch.zeros(x.shape, device=device)
     for i in range(x.shape[0]):
         for channel in range(3):
             dct_data[i][channel,:, : ] = torch.tensor(dct2((x[i][channel,:, : ] * 255).detach().cpu().numpy().astype(np.uint8)))
-    return torch.tensor(dct_data)
+    return dct_data
 
 def train_detector(args,train_dataset, poisoned_testset, clean_testset, structure=50, class_num=100, input_size=32,label_number=10, num_epochs=5, batch_size=128, learning_rate=0.05, weight_decay = 1e-4  # Note: This is used in Keras as L2 regularization, handled differently in PyTorch
 ):
@@ -627,7 +646,7 @@ def train_detector(args,train_dataset, poisoned_testset, clean_testset, structur
 
     model = core.models.backdoor_backdoor.detector_model(structure, class_num, input_size,label_number)
     model.train()
-    model = model.cuda()
+    model = model.to(DEVICE)
 
     #model parallel
     # model = nn.DataParallel(model, device_ids=device_ids)
@@ -646,7 +665,7 @@ def train_detector(args,train_dataset, poisoned_testset, clean_testset, structur
 
 
     if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location='cuda:0'))
+        model.load_state_dict(torch.load(model_path, map_location=DEVICE))
         return model
 
 
@@ -663,12 +682,12 @@ def train_detector(args,train_dataset, poisoned_testset, clean_testset, structur
         # Training loop
         for i, (data, target) in enumerate(train_loader):
             optimizer.zero_grad()
-            data=data.cuda()
-            data_dct= three_channel_dct(data).cuda()
+            data = data.to(DEVICE)
+            data_dct = three_channel_dct(data, device=DEVICE)
 
             output = model(data, data_dct)
 
-            loss = criterion(output, target.cuda())
+            loss = criterion(output, target.to(DEVICE))
             loss.backward()
             optimizer.step()
             # print statistics
@@ -700,6 +719,7 @@ def evaluate_bb(model, dataset,image_dct, alpha=0, mode="Poisoned",use_clean_lab
             labels_gt.append(label)
     model.eval()
     # since we're not training, we don't need to calculate the gradients for our outputs
+    image_dct = image_dct.to(DEVICE)
 
 
 
@@ -707,10 +727,10 @@ def evaluate_bb(model, dataset,image_dct, alpha=0, mode="Poisoned",use_clean_lab
         with torch.no_grad():
             for idx, (data) in enumerate(tqdm(testloader)):
                 images, labels = data
-                images, labels = images.cuda(), labels.cuda()
-                labels = labels_gt[idx].cuda()
+                images, labels = images.to(DEVICE), labels.to(DEVICE)
+                labels = labels_gt[idx].to(DEVICE)
                 # labels = clean_data[1].cuda()
-                outputs = model(images, image_dct.repeat(images.shape[0], 1, 1, 1)).cuda()
+                outputs = model(images, image_dct.repeat(images.shape[0], 1, 1, 1))
                 _, predicted = torch.topk(outputs.data, 2, 1)
                 predicted = predicted[:, 0]
                 # print(predicted[:20])
@@ -721,9 +741,9 @@ def evaluate_bb(model, dataset,image_dct, alpha=0, mode="Poisoned",use_clean_lab
         with torch.no_grad():
             for idx, (data) in enumerate(tqdm(testloader)):
                 images, labels = data
-                images, labels = images.cuda(), labels.cuda()
+                images, labels = images.to(DEVICE), labels.to(DEVICE)
                 # print("--",images.shape)
-                outputs = model(images,image_dct.repeat(images.shape[0],1,1,1)).cuda()
+                outputs = model(images,image_dct.repeat(images.shape[0],1,1,1))
                 _, predicted = torch.topk (outputs.data, 2, 1)
 
                 predicted = predicted[:, 0]
@@ -731,7 +751,7 @@ def evaluate_bb(model, dataset,image_dct, alpha=0, mode="Poisoned",use_clean_lab
                 if exclude_target:
                     # print("===",idx)
 
-                    labels_gt_label = labels_gt[idx].cuda()
+                    labels_gt_label = labels_gt[idx].to(DEVICE)
 
                     labels_final=labels[labels_gt_label!=target_label]
                     predicted=predicted[labels_gt_label!=target_label]
@@ -763,10 +783,10 @@ def evaluate(model, dataset, alpha=0, mode="Poisoned"):
     with torch.no_grad():
         for data in tqdm(testloader):
             images, labels = data
-            images, labels = images.cuda(), labels.cuda()
+            images, labels = images.to(DEVICE), labels.to(DEVICE)
             images = alpha * torch.rand(images.shape, device=images.device) + images
             # calculate outputs by running images through the network
-            image_dct= three_channel_dct(images).cuda()
+            image_dct = three_channel_dct(images, device=DEVICE)
             # print(image_dct.shape)
             outputs = model(images,image_dct)
             # the class with the highest energy is what we choose as prediction
@@ -883,11 +903,13 @@ if __name__ == "__main__":
 
     import torchvision.utils as tvu
     for i, (dct_data, target) in enumerate(train_loader):
-        
-        data_dct = three_channel_dct(dct_data).cuda()
+
+        dct_data = dct_data.to(DEVICE)
+        data_dct = three_channel_dct(dct_data, device=DEVICE)
         break
     for i, (dct_data, target) in enumerate(ps_train_loader):
-        data_dct_ps = three_channel_dct(dct_data).cuda()
+        dct_data = dct_data.to(DEVICE)
+        data_dct_ps = three_channel_dct(dct_data, device=DEVICE)
         break
 
     #visualize the latent space:      
@@ -906,8 +928,8 @@ if __name__ == "__main__":
         poisoned_loader_vis = DataLoader(poisoned_testset, batch_size=1000, shuffle=True) 
         for i, (data, target) in enumerate(clean_loader_vis):
             with torch.no_grad():
-                data = data.cuda()
-                data_dct = three_channel_dct(data).cuda()
+                data = data.to(DEVICE)
+                data_dct = three_channel_dct(data, device=DEVICE)
                 # print("--",data.shape)
                 output = model(data, data_dct)
                 # print("here",output.shape)
@@ -923,8 +945,8 @@ if __name__ == "__main__":
 
         for i, (data, target) in enumerate(poisoned_loader_vis):
             with torch.no_grad():
-                data = data.cuda()
-                data_dct = three_channel_dct_one_image(clean_testset[10][0]).repeat(data.shape[0], 1, 1, 1).cuda()
+                data = data.to(DEVICE)
+                data_dct = three_channel_dct_one_image(clean_testset[10][0]).to(DEVICE).repeat(data.shape[0], 1, 1, 1)
                 normal_emb = model.normal_model(data)
                 attack_emb = model.attack_model(data_dct)
 
@@ -1058,8 +1080,8 @@ if __name__ == "__main__":
 
     #posioned dct
     print("poisoned dct")
-    evaluate_bb(model, clean_testset, three_channel_dct_one_image(poisoned_testset[1][0]).cuda(), mode="Clean")
-    evaluate_bb(model, poisoned_testset, three_channel_dct_one_image(poisoned_testset[1][0]).cuda(), mode="Poisoned")
+    evaluate_bb(model, clean_testset, three_channel_dct_one_image(poisoned_testset[1][0]).to(DEVICE), mode="Clean")
+    evaluate_bb(model, poisoned_testset, three_channel_dct_one_image(poisoned_testset[1][0]).to(DEVICE), mode="Poisoned")
 
     #clean dct
     # plt.imshow(clean_testset[1][0].permute(1, 2, 0))
@@ -1067,7 +1089,7 @@ if __name__ == "__main__":
     # plt.show()
     print("clean dct")
     # print(clean_testset[5][1])
-    evaluate_bb(model, clean_testset,  three_channel_dct_one_image(clean_testset[10][0]).cuda(), mode="Clean")
-    evaluate_bb(model, poisoned_testset, three_channel_dct_one_image(clean_testset[10][0]).cuda(), mode="Poisoned",use_clean_label=True,clean_testset=clean_testset)
+    evaluate_bb(model, clean_testset,  three_channel_dct_one_image(clean_testset[10][0]).to(DEVICE), mode="Clean")
+    evaluate_bb(model, poisoned_testset, three_channel_dct_one_image(clean_testset[10][0]).to(DEVICE), mode="Poisoned",use_clean_label=True,clean_testset=clean_testset)
     print("===================ASR===================")
-    evaluate_bb(model, poisoned_testset, three_channel_dct_one_image(clean_testset[10][0]).cuda(), mode="Poisoned",use_clean_label=False,clean_testset=clean_testset,exclude_target=True,target_label=0)
+    evaluate_bb(model, poisoned_testset, three_channel_dct_one_image(clean_testset[10][0]).to(DEVICE), mode="Poisoned",use_clean_label=False,clean_testset=clean_testset,exclude_target=True,target_label=0)
